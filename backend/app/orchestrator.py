@@ -81,6 +81,10 @@ CRITICAL RULES (this is a product requirement, not a suggestion):
    one of grocery/taxi/flight/shopping, a cart will be generated and the user will be asked
    to approve it — you do not compute prices yourself.
 8. Keep "reply" short, warm, and specific — it is shown directly to the user in a chat UI.
+9. If the user volunteers a durable preference WHILE you're still missing other required
+   fields (e.g. they say "use Uber" before you know the destination), still use intent
+   "clarify", but put that preference in memory_patch so it's remembered immediately —
+   you won't need to ask for it again on the next message.
 
 Respond with ONLY a single JSON object, no prose outside it, matching this shape:
 {
@@ -171,7 +175,18 @@ def handle_message(user: dict, cfg: LLMConfig, message: str) -> dict:
         repo.add_conversation(user["id"], "assistant", analysis["reply"])
         return response
 
-    if intent in ("create_agent", "update_memory", "one_off_task", "delete_memory"):
+    # "clarify" (e.g. "which app should I use?") is folded in here too, but only
+    # when the reply actually captured something worth remembering (a durable
+    # preference volunteered mid-clarification, like "Uber" before the
+    # destination is known) — a bare clarifying question with nothing new
+    # learned yet must not spin up an agent on its own.
+    has_something_to_remember = bool(
+        analysis.get("memory_patch") or analysis.get("permissions_patch")
+        or analysis.get("schedule_patch") or analysis.get("memory_delete")
+    )
+    if intent in ("create_agent", "update_memory", "one_off_task", "delete_memory") or (
+        intent == "clarify" and has_something_to_remember
+    ):
         created = False
         if not agent:
             kind = "recurring" if is_recurring else "on_demand"

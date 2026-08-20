@@ -48,6 +48,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [needsSettings, setNeedsSettings] = useState(false)
   const [error, setError] = useState(null)
+  const [connError, setConnError] = useState(null)
   const scrollRef = useRef(null)
 
   const login = (email) => {
@@ -57,15 +58,39 @@ export default function App() {
 
   const refreshAgents = async () => {
     if (!userEmail) return
-    const list = await api.listAgents(userEmail)
-    setAgents(list)
+    try {
+      const list = await api.listAgents(userEmail)
+      setAgents(list)
+      setConnError(null)
+    } catch (e) {
+      setConnError(e.message)
+    }
   }
 
   const loadHistory = async () => {
     if (!userEmail) return
-    const [convo, settings] = await Promise.all([api.getConversation(userEmail), api.getSettings(userEmail)])
-    setMessages(convo.map((m) => ({ role: m.role, content: m.content })))
-    setNeedsSettings(!settings.configured)
+    // Independent try/catches on purpose: these two calls are unrelated, so
+    // one failing (e.g. a transient DB hiccup) shouldn't blank out both —
+    // and either way the user sees why, instead of a silently empty screen.
+    try {
+      const convo = await api.getConversation(userEmail)
+      setMessages(convo.map((m) => ({ role: m.role, content: m.content })))
+      setConnError(null)
+    } catch (e) {
+      setConnError(e.message)
+    }
+    try {
+      const settings = await api.getSettings(userEmail)
+      setNeedsSettings(!settings.configured)
+    } catch (e) {
+      setConnError((prev) => prev || e.message)
+    }
+  }
+
+  const retryLoad = () => {
+    setConnError(null)
+    refreshAgents()
+    loadHistory()
   }
 
   useEffect(() => {
@@ -124,6 +149,11 @@ export default function App() {
           <span className="user-pill">{userEmail}</span>
         </div>
 
+        {connError && (
+          <div className="banner" style={{ background: '#fbe7e9', borderColor: '#f3b3ba', color: '#8a2331' }}>
+            Couldn't reach the server: {connError} <button className="link" onClick={retryLoad}>Retry</button>
+          </div>
+        )}
         {needsSettings && (
           <div className="banner">
             Add your AI model + API key to activate your agents. <button className="link" onClick={() => setShowSettings(true)}>Open Settings</button>

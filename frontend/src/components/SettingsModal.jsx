@@ -10,17 +10,31 @@ export default function SettingsModal({ userEmail, onClose, onSaved }) {
   const [paymentRail, setPaymentRail] = useState('simulated_upi')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [loadError, setLoadError] = useState(null)
 
-  useEffect(() => {
-    (async () => {
-      const [p, s] = await Promise.all([api.getProviders(), api.getSettings(userEmail)])
+  const load = async () => {
+    setLoadError(null)
+    // Independent try/catches: a failure loading the user's saved settings
+    // (e.g. a transient DB hiccup) must not also blank out the provider/model
+    // list — those come from a separate, unrelated call.
+    try {
+      const p = await api.getProviders()
       setProviders(p)
+    } catch (e) {
+      setLoadError(`Couldn't load model list: ${e.message}`)
+    }
+    try {
+      const s = await api.getSettings(userEmail)
       setProvider(s.llm_provider)
       setModel(s.llm_model)
       setExistingMasked(s.api_key_masked)
       setPaymentRail(s.payment_rail)
-    })()
-  }, [userEmail])
+    } catch (e) {
+      setLoadError((prev) => prev || `Couldn't load your saved settings: ${e.message}`)
+    }
+  }
+
+  useEffect(() => { load() }, [userEmail])
 
   const models = providers[provider]?.models || []
 
@@ -94,6 +108,12 @@ export default function SettingsModal({ userEmail, onClose, onSaved }) {
               rail simulates that handshake so you can see the full approve → pay → confirm loop.
             </div>
           </div>
+          {loadError && (
+            <div className="hint" style={{ color: 'var(--red)' }}>
+              {loadError}{' '}
+              <button className="link" onClick={load}>Retry</button>
+            </div>
+          )}
           {error && <div className="hint" style={{ color: 'var(--red)' }}>{error}</div>}
         </div>
         <div className="m-actions">
